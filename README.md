@@ -10,6 +10,10 @@ Snoop into Python's inner working.
 
 ./snoo.py os
 # lists all possibilities
+
+./snoo.py sus; echo "$?"
+Error: unknown module: sus, did you mean: smbus, sys, ssl?
+1
 ```
 
 Requires `python >= 3.14`
