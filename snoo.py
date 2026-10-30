@@ -18,27 +18,25 @@ def known_modules():
 	# stdlib plus anything installed on sys.path
 	return set(sys.stdlib_module_names) | {m.name for m in pkgutil.iter_modules()}
 
-def list_attributes(module: str):
+def load_module(module: str):
 	try:
-		mod = importlib.import_module(module)
-		# skip private names like _foo and __doc__
-		return [name for name in dir(mod) if not name.startswith('_')]
+		return importlib.import_module(module)
 	except ModuleNotFoundError:
 		# print something helful on error
 		print(f'Error: unknown module: {module}{did_you_mean(module, known_modules())}')
 		raise SystemExit(1)
 
+def list_attributes(module: str):
+	# skip private names like _foo and __doc__
+	return [name for name in dir(load_module(module)) if not name.startswith('_')]
+
 def system_info(module: str, lookup: str):
 	# look up <module>.<lookup> by name
+	mod = load_module(module)
 	try:
-		mod = importlib.import_module(module)
 		value = getattr(mod, lookup)
 		# call it if it's a function
 		return value() if callable(value) else value
-	# print something helful on error
-	except ModuleNotFoundError:
-		print(f'Error: unknown module: {module}{did_you_mean(module, known_modules())}')
-		raise SystemExit(1)
 	except AttributeError:
 		print(f'Error: unknown keys: {module}.{lookup}{did_you_mean(lookup, dir(mod))}')
 		raise SystemExit(1)
