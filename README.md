@@ -4,7 +4,7 @@ Look up any Python `<module>.<name>` from the command line.
 > Functions are called automatically.
 
 ```console
-python3 main.py os cpu_count
+python3 snoo.py os cpu_count
 12
 ```
 
