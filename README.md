@@ -1,11 +1,15 @@
 # snoopy
 
-Look up any Python `<module>.<name>` from the command line.
+Snoop into Python's inner working.
+
 > Functions are called automatically.
 
 ```console
-python3 snoo.py os cpu_count
+./snoo.py os cpu_count
 12
+
+./snoo.py os
+# lists all possibilities
 ```
 
 Requires `python >= 3.14`
