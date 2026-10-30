@@ -1,6 +1,6 @@
-# snoopy
+# Snoopy
 
-Snoop into Python's inner working.
+Peek into Python's inner working.
 
 > Functions are called automatically.
 
