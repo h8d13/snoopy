@@ -26,7 +26,10 @@ def known_modules():
 def load_module(module: str):
 	try:
 		return importlib.import_module(module)
-	except ModuleNotFoundError:
+	except ModuleNotFoundError as e:
+		# a missing dependency of the module is its own error, keep it
+		if e.name != module:
+			raise
 		# print something helful on error
 		raise SnooError(f'unknown module: {module}{did_you_mean(module, known_modules())}') from None
 
@@ -63,7 +66,7 @@ def split_args(raw: str) -> list:
 			depth += (char in '([{') - (char in ')]}')
 		part += char
 	if quote:
-		raise ValueError('No closing quotation')
+		raise SnooError(f'No closing quotation in {raw}')
 	if raw:
 		args.append(parse_arg(part))
 	return args
@@ -87,12 +90,8 @@ def peek(obj, name: str, *args, label: str = ''):
 			raise SnooError(f'{path} is not a function, it takes no arguments')
 		return value
 
-	# call it if it's a function
-	try:
-		return value(*args)
-	except TypeError as e:
-		# wrong or missing arguments, e.g. os.getenv without a name
-		raise SnooError(f'{path}: {e}') from None
+	# call it if it's a function, its errors keep their own type
+	return value(*args)
 
 def group_chains(lookups: list) -> list:
 	# '.name' continues on the previous result:
@@ -115,12 +114,7 @@ def run_chain(module: str, chain: list):
 	for lookup in chain:
 		lookup = lookup.removeprefix('.')
 		name, _, raw_args = lookup.partition(':')
-		try:
-			args = split_args(raw_args)
-		except Exception as e:
-			# e.g. an unclosed quote or 1/0
-			raise SnooError(f'bad arguments in {lookup}: {e}') from None
-		value = peek(value, name, *args, label=label)
+		value = peek(value, name, *split_args(raw_args), label=label)
 		label += '.' + name
 	return value
 
@@ -163,3 +157,6 @@ if __name__ == '__main__':
 	except SnooError as e:
 		# errors go to stderr with exit 1
 		sys.exit(f'Error: {e}')
+	except Exception as e:
+		# raised by the looked up code or an argument, e.g. 1/0
+		sys.exit(f'Error: {type(e).__name__}: {e}')

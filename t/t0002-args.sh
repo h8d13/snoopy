@@ -51,7 +51,7 @@ test_expect_success 'quoted commas inside a list stay in the string' '
 
 test_expect_success 'missing arguments exit 1 without traceback' '
 	out=$(test_expect_code 1 snoo os getenv 2>&1) &&
-	test_is "Error: os.getenv: getenv() missing 1 required positional argument: '\''key'\''" "$out"
+	test_is "Error: TypeError: getenv() missing 1 required positional argument: '\''key'\''" "$out"
 '
 
 test_expect_success 'arguments on a non-function exit 1' '
@@ -97,6 +97,22 @@ print(run_chain(\"os\", [\"getcwd\", \".upper\"]))") &&
 	test_is "$HOME
 AB
 ${PWD^^}" "$out"
+'
+
+test_expect_success 'any error from the call exits 1 with its type' '
+	out=$(test_expect_code 1 snoo builtins int:\"x\" 2>&1) &&
+	test_is "Error: ValueError: invalid literal for int() with base 10: '\''x'\''" "$out"
+'
+
+test_expect_success 'python callers get the real error type' '
+	out=$(python3 -c "
+import sys, os; sys.path.insert(0, \"${SNOO%/*}\")
+from snoo import peek, SnooError
+for call in (lambda: peek(os, \"getenv\"), lambda: peek(os, \"getevn\")):
+	try: call()
+	except Exception as e: print(type(e).__name__)") &&
+	test_is "TypeError
+SnooError" "$out"
 '
 
 test_expect_success '.name runs on the previous result' '
@@ -151,7 +167,7 @@ test_expect_success 'maths-looking text needs quotes' '
 
 test_expect_success 'failing expression exits 1' '
 	out=$(test_expect_code 1 snoo math isqrt:1/0 2>&1) &&
-	test_is "Error: bad arguments in isqrt:1/0: division by zero" "$out"
+	test_is "Error: ZeroDivisionError: division by zero" "$out"
 '
 
 test_expect_success 'unquoted number is converted' '

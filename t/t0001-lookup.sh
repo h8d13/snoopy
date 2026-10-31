@@ -52,6 +52,16 @@ test_expect_success 'unknown module exits 1 with a suggestion' '
 	echo "$out" | grep -q "did you mean: platform"
 '
 
+test_expect_success 'missing dependency is not reported as unknown module' '
+	dir=$(mktemp -d) &&
+	echo "import snoo_missing_dep" >"$dir/snoo_hasdep.py" &&
+	out=$(PYTHONPATH=$dir test_expect_code 1 snoo snoo_hasdep 2>&1)
+	rc=$?
+	rm -r "$dir"
+	test $rc = 0 &&
+	test_is "Error: ModuleNotFoundError: No module named '\''snoo_missing_dep'\''" "$out"
+'
+
 test_expect_success 'unknown module is caught before lookups' '
 	out=$(test_expect_code 1 snoo paltform machine 2>&1) &&
 	echo "$out" | grep -q "^Error: unknown module: paltform"
