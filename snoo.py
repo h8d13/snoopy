@@ -2,9 +2,9 @@
 # get rdy this a very stupid tool.
 
 import argparse
-import ast
 import difflib
 import importlib
+import keyword
 import pkgutil
 import sys
 
@@ -35,44 +35,37 @@ def list_attributes(module: str):
 	return [name for name in dir(load_module(module)) if not name.startswith('_')]
 
 def parse_arg(text: str):
-	# 42 -> int, [1,2] -> list, HOME -> 'HOME' (plain text fallback)
+	# Python expressions: 42, [0.1]*10, b'hi', float('nan'), lambda: 0
+	# anything else is plain text: HOME, /usr/bin, %A
+	# bare names stay text even if builtin: bin, id, type
+	if text.isidentifier() and not keyword.iskeyword(text):
+		return text
 	try:
-		return ast.literal_eval(text)
-	except ValueError, SyntaxError:
+		return eval(text, {})
+	except NameError, SyntaxError:
 		return text
 
 def split_args(raw: str) -> list:
-	# split on commas, except inside quotes or brackets
-	# quoted parts stay text, the rest goes through parse_arg:
-	# 'a,"b,c",42,[1,2]' -> ['a', 'b,c', 42, [1, 2]]
+	# split on commas, except inside quotes or brackets, each part then
+	# goes through parse_arg: 'a,"b,c",42,[1,2]' -> ['a', 'b,c', 42, [1, 2]]
 	args, part = [], ''
-	quote, quoted, keep, depth = None, False, False, 0
+	quote, depth = None, 0
 	for char in raw:
-		if quote or char in '"\'':
-			if quote is None:
-				quote = char
-				# only a quote opening the part is CLI quoting, later
-				# ones belong to the literal, e.g. ['a,b'], b'hi', r'\n'
-				keep = bool(part)
-			elif char == quote:
-				quote = None
-			else:
-				part += char
-				continue
-			if keep:
-				part += char
-			else:
-				quoted = True
+		if quote:
+			quote = None if char == quote else quote
+		elif char in '"\'':
+			quote = char
 		elif char == ',' and not depth:
-			args.append(part if quoted else parse_arg(part))
-			part, quoted = '', False
+			args.append(parse_arg(part))
+			part = ''
+			continue
 		else:
 			depth += (char in '([{') - (char in ')]}')
-			part += char
+		part += char
 	if quote:
 		raise ValueError('No closing quotation')
 	if raw:
-		args.append(part if quoted else parse_arg(part))
+		args.append(parse_arg(part))
 	return args
 
 def peek(obj, name: str, *args, label: str = ''):
@@ -124,8 +117,8 @@ def run_chain(module: str, chain: list):
 		name, _, raw_args = lookup.partition(':')
 		try:
 			args = split_args(raw_args)
-		except ValueError as e:
-			# e.g. an unclosed quote
+		except Exception as e:
+			# e.g. an unclosed quote or 1/0
 			raise SnooError(f'bad arguments in {lookup}: {e}') from None
 		value = peek(value, name, *args, label=label)
 		label += '.' + name

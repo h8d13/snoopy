@@ -129,6 +129,31 @@ test_expect_success 'chain without a lookup before it exits 1' '
 	test_is "Error: nothing to chain .upper onto" "$out"
 '
 
+test_expect_success 'expressions are evaluated' '
+	test_is 10 "$(snoo math "isqrt:10**2")" &&
+	test_is 10 "$(snoo builtins "len:[0.1]*10")"
+'
+
+test_expect_success 'builtins and lambdas work as arguments' '
+	test_is False "$(snoo math "isnan:float('\''inf'\'')")" &&
+	test_is True "$(snoo abc "abstractmethod:lambda: 0" .__isabstractmethod__)"
+'
+
+test_expect_success 'bare names stay text, even builtins' '
+	test_is "<class '\''str'\''>" "$(snoo builtins type:bin)" &&
+	test_is "<class '\''NoneType'\''>" "$(snoo builtins type:None)"
+'
+
+test_expect_success 'maths-looking text needs quotes' '
+	test_is 1985 "$(snoo builtins str:2026-10-31)" &&
+	test_is 2026-10-31 "$(snoo builtins str:\"2026-10-31\")"
+'
+
+test_expect_success 'failing expression exits 1' '
+	out=$(test_expect_code 1 snoo math isqrt:1/0 2>&1) &&
+	test_is "Error: bad arguments in isqrt:1/0: division by zero" "$out"
+'
+
 test_expect_success 'unquoted number is converted' '
 	test_is "<class '\''int'\''>" "$(snoo builtins type:42)"
 '
