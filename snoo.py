@@ -46,18 +46,20 @@ def split_args(raw: str) -> list:
 	# quoted parts stay text, the rest goes through parse_arg:
 	# 'a,"b,c",42,[1,2]' -> ['a', 'b,c', 42, [1, 2]]
 	args, part = [], ''
-	quote, quoted, depth = None, False, 0
+	quote, quoted, keep, depth = None, False, False, 0
 	for char in raw:
 		if quote or char in '"\'':
 			if quote is None:
 				quote = char
+				# only a quote opening the part is CLI quoting, later
+				# ones belong to the literal, e.g. ['a,b'], b'hi', r'\n'
+				keep = bool(part)
 			elif char == quote:
 				quote = None
 			else:
 				part += char
 				continue
-			# quotes inside brackets belong to the literal, e.g. ['a,b']
-			if depth:
+			if keep:
 				part += char
 			else:
 				quoted = True
@@ -73,17 +75,23 @@ def split_args(raw: str) -> list:
 		args.append(part if quoted else parse_arg(part))
 	return args
 
-def peek(module: str, name: str, *args):
-	# look up <module>.<name> by name, extra args are passed if it's a function
-	mod = load_module(module)
-	try:
-		value = getattr(mod, name)
-	except AttributeError:
-		raise SnooError(f'unknown keys: {module}.{name}{did_you_mean(name, dir(mod))}') from None
+def peek(obj, name: str, *args, label: str = ''):
+	# look up <obj>.<name>, extra args are passed if it's a function
+	# label names obj in errors, e.g. 'hashlib.sha3_512', defaults to
+	# its own name (os) or its type for plain values (str)
+	# dotted names are walked, only the last part is called: Path.home()
+	label = label or getattr(obj, '__name__', type(obj).__name__)
+	path = f'{label}.{name}'
+	value = obj
+	for part in name.split('.'):
+		try:
+			value = getattr(value, part)
+		except AttributeError:
+			raise SnooError(f'unknown keys: {path}{did_you_mean(part, dir(value))}') from None
 
 	if not callable(value):
 		if args:
-			raise SnooError(f'{module}.{name} is not a function, it takes no arguments')
+			raise SnooError(f'{path} is not a function, it takes no arguments')
 		return value
 
 	# call it if it's a function
@@ -91,38 +99,58 @@ def peek(module: str, name: str, *args):
 		return value(*args)
 	except TypeError as e:
 		# wrong or missing arguments, e.g. os.getenv without a name
-		raise SnooError(f'{module}.{name}: {e}') from None
+		raise SnooError(f'{path}: {e}') from None
 
-def run_lookup(module: str, lookup: str):
+def group_chains(lookups: list) -> list:
+	# '.name' continues on the previous result:
+	# ['sha256:b"x"', '.hexdigest', 'name']
+	#   -> [['sha256:b"x"', '.hexdigest'], ['name']]
+	chains = []
+	for lookup in lookups:
+		if not lookup.startswith('.'):
+			chains.append([lookup])
+		elif chains:
+			chains[-1].append(lookup)
+		else:
+			raise SnooError(f'nothing to chain {lookup} onto')
+	return chains
+
+def run_chain(module: str, chain: list):
+	# each lookup runs on the previous value, starting from the module
 	# CLI form: getenv:HOME passes 'HOME' as argument
-	name, _, raw_args = lookup.partition(':')
-	try:
-		args = split_args(raw_args)
-	except ValueError as e:
-		# e.g. an unclosed quote
-		raise SnooError(f'bad arguments in {lookup}: {e}') from None
-	return peek(module, name, *args)
+	value, label = load_module(module), module
+	for lookup in chain:
+		lookup = lookup.removeprefix('.')
+		name, _, raw_args = lookup.partition(':')
+		try:
+			args = split_args(raw_args)
+		except ValueError as e:
+			# e.g. an unclosed quote
+			raise SnooError(f'bad arguments in {lookup}: {e}') from None
+		value = peek(value, name, *args, label=label)
+		label += '.' + name
+	return value
 
-# print(peek('sys', 'version'))
-# print(peek('sys', 'platform'))
-# print(peek('sys', 'executable'))
-# print(peek('sys', 'nopenope'))
+# print(run_chain('sys', ['version']))
+# print(run_chain('sys', ['platform']))
+# print(run_chain('sys', ['executable']))
+# print(run_chain('sys', ['nopenope']))
 
 # get all available fields
 # import sys
 # print(dir(sys))
 # can do the same with 'os' or others...
 
-# print(peek('platform', 'machine'))
-# print(peek('sys', 'maxsize'))
+# print(run_chain('platform', ['machine']))
+# print(run_chain('sys', ['maxsize']))
 # functions are called automatically
-# print(peek('os', 'cpu_count'))
+# print(run_chain('os', ['cpu_count']))
 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description=f'snoopy {_VER} - Look up modules/attributes/functions in CLI')
 	parser.add_argument('module', help='module name, e.g. sys, os, platform')
-	parser.add_argument('lookup', nargs='*', help='attribute names, e.g. version platform, or with arguments: getenv:HOME (none: list all)')
+	parser.add_argument('lookup', nargs='*', help='attribute names, e.g. version platform, or with arguments: getenv:HOME, .name runs on the previous result (none: list all)')
 	args = parser.parse_args()
 
 	try:
@@ -133,10 +161,12 @@ if __name__ == '__main__':
 
 		# lookups are then optional...
 		# several lookups for one module is fine, another module needs another query
-		for lookup in args.lookup:
-			value = run_lookup(args.module, lookup)
+		# '.name' chains onto the lookup before it, e.g. sha3_512:b"x" .hexdigest
+		chains = group_chains(args.lookup)
+		for chain in chains:
+			value = run_chain(args.module, chain)
 			# label each value when there are several
-			print(f'{lookup}: {value}' if len(args.lookup) > 1 else value)
+			print(f'{' '.join(chain)}: {value}' if len(chains) > 1 else value)
 	except SnooError as e:
 		# errors go to stderr with exit 1
 		sys.exit(f'Error: {e}')

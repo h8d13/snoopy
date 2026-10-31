@@ -77,6 +77,58 @@ test_expect_success 'quoted list stays a string (json.loads)' '
 	test_is "[1, 2]" "$(snoo json loads:\"[1,2]\")"
 '
 
+test_expect_success 'bytes prefix makes a bytes argument' '
+	test_is "<class '\''bytes'\''>" "$(snoo builtins type:b\"42\")" &&
+	test_is "b'\''a,b'\''" "$(snoo builtins "repr:b'\''a,b'\''")"
+'
+
+test_expect_success 'other string prefixes are literals too' '
+	test_is 4 "$(snoo builtins "len:r'\''\n\n'\''")" &&
+	test_is x "$(snoo builtins "str:u'\''x'\''")"
+'
+
+test_expect_success 'callable from python' '
+	out=$(python3 -c "
+import sys, pathlib; sys.path.insert(0, \"${SNOO%/*}\")
+from snoo import peek, run_chain
+print(peek(pathlib, \"Path.home\"))
+print(peek(\"ab\", \"upper\"))
+print(run_chain(\"os\", [\"getcwd\", \".upper\"]))") &&
+	test_is "$HOME
+AB
+${PWD^^}" "$out"
+'
+
+test_expect_success '.name runs on the previous result' '
+	test_is 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4 \
+		"$(snoo hashlib "sha256:b'\''hi'\''" .hexdigest)"
+'
+
+test_expect_success 'chains are labeled as one lookup' '
+	out=$(snoo os getcwd .upper cpu_count) &&
+	echo "$out" | grep -qx "getcwd .upper: ${PWD^^}"
+'
+
+test_expect_success 'bad name in a chain names the chain so far' '
+	out=$(test_expect_code 1 snoo os getcwd .uper 2>&1) &&
+	echo "$out" | grep -q "^Error: unknown keys: os.getcwd.uper, did you mean: upper"
+'
+
+test_expect_success 'dotted name is walked, only the end is called' '
+	test_is "$HOME" "$(snoo pathlib Path.home)" &&
+	test_is True "$(snoo pathlib Path.home .joinpath:snoo .is_relative_to:$HOME)"
+'
+
+test_expect_success 'bad part of a dotted name gets a suggestion' '
+	out=$(test_expect_code 1 snoo pathlib Path.hom 2>&1) &&
+	test_is "Error: unknown keys: pathlib.Path.hom, did you mean: home?" "$out"
+'
+
+test_expect_success 'chain without a lookup before it exits 1' '
+	out=$(test_expect_code 1 snoo os .upper 2>&1) &&
+	test_is "Error: nothing to chain .upper onto" "$out"
+'
+
 test_expect_success 'unquoted number is converted' '
 	test_is "<class '\''int'\''>" "$(snoo builtins type:42)"
 '
